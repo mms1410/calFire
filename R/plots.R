@@ -1,23 +1,28 @@
+library(fs)
+library(here)
 library(sf)
 library(ggplot2)
 library(tidyverse)
+library(maps)
+library(rnaturalearth)
 #-------------------------------------------------------------------------------
 source("R/load_data.R")
-source("R/utils/helper_functions.R")
-source("R/utils/plot_functions.R")
+#source("R/utils/helper_functions.R")
+#source("R/utils/plot_functions.R")
+ca_map <- map_data("state", region = "california")
+usa <- ne_states(country = "united states of america", returnclass = "sf")
+ca <- usa[usa$name == "California", ]
+plot_folder <- path(here(), "assets", "plots" ,"eda")
+dir_create(plot_folder)
 noaa_burn_cause <- "Heavy Rain / Burn Area"
-# ca size roughly 423,970km^2
-fires2 <- fires |>
-  slice_max(area, n = 5, with_ties = FALSE)
-
-quantiles <- fires |>
-  slice_min(order_by = area, n = n() - 5) |>
-  mutate(q = ntile(area, 4))
+period <- paste0(conf$start_year," - ", conf$end_year)
+theme_set(theme_minimal())
 
 #-------------------------------------------------------------------------------
+# map total events
 ggplot() +
-  geom_sf(data = ca_aes(fill = name)) +
-  geom_sf(data = burnt_area, fill = "grey73") +
+  geom_sf(data = ca_eco_l3, aes(fill = name), alpha = 0.2) +
+  geom_sf(data = burnt_area, color = "grey") +
   geom_sf(data = fires,
           aes(shape = "Fire"), color = "red", shape = 19, size = 0.1, alpha = 0.4) +
   geom_sf(data = debris |>
@@ -26,46 +31,40 @@ ggplot() +
   geom_sf(data = floods |>
             filter(cause == noaa_burn_cause),
           aes(shape = "Flash Flood"), color = "blue", size = 1.5, shape = 17, alpha = 0.8) +
-  ggtitle("Wildfire, Debris-flow and Flash-floods locations",
-          subtitle = "2000-2025")
-ggsave("assets/plots/total_events.png")
+  xlab("Latitude") +
+  ylab("Longitude") +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 5),      # Smaller text
+    legend.title = element_text(size = 6),     # Smaller title
+    legend.key.size = unit(0.2, "cm")          # Smaller boxes
+  ) +
+  guides(fill = guide_legend(
+    ncol = 2,                                   # 3 columns
+    title = "Ecoregion",
+    override.aes = list(alpha = 0.7)           # More visible in legend
+  ))
+ggsave(path(plot_folder, "map_total_events.png"))
 
 
-count_by_year(fires, floods, debris) |>
-  ggplot(aes(x = as.factor(year))) +
-  geom_col(aes(y = fires, group = "fires"), fill = "red", position = position_dodge(width = 0.9)) +
-  geom_col(aes(y = debris, group = "debris"), fill = "black", position = position_dodge(width = 0.9)) +
+# counts over time
+bind_rows(
+  debris %>% mutate(type = "debris"),
+  floods %>% mutate(type = "flood"),
+  fires  %>% mutate(type = "fire")
+) %>%
+  mutate(period = floor_date(date, unit = "month")) %>%
+  count(type, period) %>%
+  group_by(type) %>%
+  mutate(n_scaled = (n - min(n)) / (max(n) - min(n))) %>%
+  ungroup() |>
+  mutate(type = factor(type, levels = c("fire", "debris", "flood"))) |>
+  ggplot(aes(x = period, y = n, fill = type)) +
+  geom_col(alpha = 0.85) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c("debris" = "black", "flood" = "blue", "fire" = "red")) +
   ylab("Count") +
-  xlab("")
-
-
+  xlab("Time") + 
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave(path(plot_folder, "time_count_per_type.png"))
 #-------------------------------------------------------------------------------
-ggplot() +
-  geom_sf(data = ca_eco_l3, aes(fill = name), alpha = 0.3)
-
-#-------------------------------------------------------------------------------
-ggplot() +
-  #geom_sf(data = ca_eco_l3, aes(fill = name), alpha = 0.3) +
-  geom_sf(data = fires |>
-            filter(area_q == 4),
-          aes(color = "fire"), color = "red", shape = 3, size = 0.1) +
-  geom_sf(data = debris |>
-            filter(cause == noaa_burn_cause),
-          aes(color = "debris flow"), color = "black", size = 0.8, shape = 7) +
-  geom_sf(data = floods |>
-            filter(cause == noaa_burn_cause),
-          aes(color = "Flash Flood"), color = "blue", size  = 0.8, shape = 9)
-#-------------------------------------------------------------------------------
-x <- st_transform(burnt_area, 3310) |> st_area() |> as.numeric() 
-format(x, scientific = FALSE)
-
-
-ggplot(fires) +
-  geom_histogram(aes(area), bins = 100) + 
-  facet_wrap(~area_q)
-
-
-fires |>
-  filter(area_q == 4) |>
-  ggplot() + 
-  geom_histogram(aes(area))

@@ -3,14 +3,19 @@ library(fs)
 library(here)
 library(checkmate)
 library(terra)
+library(USAboundaries)
+library(sf)
+library(zoo)
 #-------------------------------------------------------------------------------
-conf <- read_yaml(path(here(), "conf", "config.yaml"))
+conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
 years <- conf$start_year:conf$end_year
+ca <- us_states(states = "CA")
 #-------------------------------------------------------------------------------
 source_folder <- path(here(), conf$path_data_raw, "prism")
+destination_folder <- path(here(), conf$path_data_preprocessed)
 
-msg <-paste0("Expected to find folder ", source_folder)
-checkmate::assert(dir_exists(prism_folder), msg)
+msg <- paste0("Expected to find folder ", source_folder)
+checkmate::assert(dir_exists(source_folder), msg)
 
 prism_files <- dir_ls(source_folder)
 prism_files_grouped <- split(prism_files,
@@ -22,13 +27,35 @@ for (year in years) {
   checkmate::assert(file_count == 12, msg)
 }
 #-------------------------------------------------------------------------------
-#*.bil   ← raster values (precipitation, NDVI, etc.)
-#*.hdr   ← raster metadata (rows, cols, datatype)
-#*.prj   ← projection
+process_raster_img <- function(zip_path) {
+  content <- unzip(zip_path, list = TRUE)$Name
+  #*.bil   ← raster values
+  bil_file <- content[grepl("\\.bil$", content)]
+  vsi_path <- paste0("/vsizip/", zip_path)
+  ppt_raster <- rast(paste0("/vsizip/", zip_path, "/", bil_file))
+  ca_vect <- vect(st_transform(ca, crs(ppt_raster)))
+  ppt_raster_ca <- crop(ppt_raster, ca_vect)
+  # NAD83 (EPSG:4269) and WGS84 (EPSG:4326) are practically identical and
+  # reprojection would change up to ~2meters only and is therefore neglected
+  mask(ppt_raster_ca, ca_vect)
+}
 
+destination <- path(destination_folder, year)
+raster_list <- list()
 for (year in years) {
   prism_group <- prism_files_grouped[[as.character(year)]]
-  for (file_month in prism_group) {
-    data_month <- 
-  }
+  ym <- as.yearmon(paste0(year, "-01")) + 0:11/12
+  
+  yearly_prism <- rast(lapply(prism_group, process_raster_img))
+  
+  terra::time(yearly_prism) <- as.Date(ym)
+  raster_list[[as.character(year)]] <- yearly_prism
 }
+prism_final <- rast(raster_list)
+
+dir_create(destination_folder)
+writeRaster(prism_final,
+            path(destination_folder, "prism.tif"),
+            overwrite = TRUE)
+#-------------------------------------------------------------------------------
+rm(list = ls())

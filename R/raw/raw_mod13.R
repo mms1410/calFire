@@ -1,83 +1,55 @@
-# https://docs.ropensci.org/MODIStsp/
-# MOD13Q1
 library(yaml)
 library(fs)
 library(here)
 library(sf)
-library(MODIStsp)
 library(dotenv)
 library(checkmate)
+library(appeears)
 #-------------------------------------------------------------------------------
-conf <- read_yaml(path(here(), "conf", "config.yaml"))
-start_date <- paste0(conf$start_year, ".01.01")
-end_date <- paste0(conf$end_year, ".31.12")
-bbox_ca <- conf$bbox_ca
-modis_prodname <- conf$modis_prodname
-modis_selprod <- conf$modis_selprod
-modis_bandnames <- conf$modis_bandnames
+conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
+destination_dir <- path(here(), conf[["path_data_raw"]])
+
+checkmate::assert("mod13" %in% names(conf))
+query_frame <- do.call(
+  rbind, lapply(conf$mod13, as.data.frame)
+)
+checkmate::assert(all(c("subtask", "product", "layer") %in% names(query_frame)))
+query_frame$task <- "mod13"
+query_frame$start <- paste0(conf[["start_year"]], "-01-01")
+query_frame$end <- paste0(conf[["end_year"]], "-12-31")
 #-------------------------------------------------------------------------------
 dotenv::load_dot_env()
 checkmate::assert("EARTHDATA_PASSWORD" %in% names(Sys.getenv()))
 checkmate::assert("EARTHDATA_USER" %in% names(Sys.getenv()))
-checkmate::assert(modis_selprod %in% MODIStsp_get_prodnames())
-for (bandname in modis_bandnames) {
-  assert(bandname %in% MODIStsp_get_prodlayers(modis_prodname)$bandnames)
-}
-# information on available data
-MODIStsp_get_prodlayers(modis_prodname)
+#checkmate::assert("EARTHDATA_TOKEN" %in% names(Sys.getenv()))
+
+available_layers <- rs_layers(product = "MOD13A3.061") 
+checkmate::assert_subset(query_frame$band, available_layers$Band)
 #-------------------------------------------------------------------------------
-MODIStsp(
-  gui = FALSE,
-  out_folder = path(conf["path_data_raw"], "mod13"),
-  user = Sys.getenv("EARTHDATA_USER"),
-  password = Sys.getenv("EARTHDATA_PASSWORD"),
-  start_date = start_date,
-  end_date = end_date,
-  bbox = bbox_ca,
-  selprod = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
-  bandsel = "EVI",
+#options(keyring_backend = "file")
+#rs_set_key(
+#  user = Sys.getenv()[["EARTHDATA_USER"]],
+#  password = Sys.getenv()[["EARTHDATA_PASSWORD"]])
+checkmate::assertFileExists("assets/ca_state/CA_State.shp")
+ca_shape <- (st_read("assets/ca_state/CA_State.shp"))
+ca_shape <-  st_transform(ca_shape, crs = conf[["crs"]])
+if (nrow(ca_shape) > 1) {
+  ca_shape <- st_union(ca_shape)
+  ca_shape <- st_as_sf(ca_shape)
+}
+
+task <- rs_build_task(
+  df = query_frame,
+  roi = ca_shape,
+  format = "geotiff"
+)
+
+req <- rs_request(
+  request = task,
+  user = Sys.getenv()[["EARTHDATA_USER"]],
+  transfer = TRUE,  # Download automatically when ready
+  path = destination_dir,
   verbose = TRUE
 )
-
-MODIStsp(gui             = FALSE, 
-         out_folder      = "$tempdir", 
-         selprod         = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
-         bandsel         = c("EVI", "NDVI"), 
-         quality_bandsel = "QA_usef", 
-         indexes_bandsel = "SR", 
-         user            = Sys.getenv("EARTHDATA_USER") ,
-         password        = Sys.getenv("EARTHDATA_PASSWORD"),
-         start_date      = "2020.06.01", 
-         end_date        = "2020.06.15", 
-         verbose         = FALSE)
-
-MODIStsp(
-  gui = FALSE,
-  selprod = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
-  bandsel = "NDVI",
-  start_date = "2000.02.18",
-  end_date   = "2025.12.31",
-  user            = Sys.getenv("EARTHDATA_USER") ,
-  password        = Sys.getenv("EARTHDATA_PASSWORD"),
-)
 #-------------------------------------------------------------------------------
-library(MODISTools)
-mt_products()
-bands <- mt_bands(product = "MOD13Q1") # 250m_16_days_NDVI, 250m_16_days_EVI
-
-
-#-------------------------------------------------------------------------------
-library(modisfast)
-# collection = MOD13Q1.061
-
-modisfast::mf_get_url(collection = "MOD13Q1.061")
-#-------------------------------------------------------------------------------
-library(appeears)
-rs_set_key(user = Sys.getenv("EARTHDATA_USER"), password = Sys.getenv("EARTHDATA_PASSWORD"))
-
-
-rs_products()
-rs_layers("MOD13A1.061") |> View() #500m 16 days EVI, 500m 16 days NDVI
-rs_set_key(user = Sys.getenv("EARTHDATA_USER"), password = Sys.getenv("EARTHDATA_PASSWORD"))
---------------------------------------------------------------------------------
   rm(list = ls())

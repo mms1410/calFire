@@ -5,7 +5,7 @@ library(here)
 library(raster)
 
 #-------------------------------------------------------------------------------
-conf <- read_yaml(path(here(), "conf", "config.yaml"))
+conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
 years <- conf$start_year:conf$end_year
 destination_folder <- path(here(), conf$path_data_raw, "prism")
 url <- "https://ftp.prism.oregonstate.edu/prior_versions/ppt/monthly_M2_201506/"
