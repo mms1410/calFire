@@ -1,8 +1,9 @@
-start_year: 2000
+start_year: 2010
 end_year: 2025
 path_data_raw: data/raw
 path_data_preprocessed: data/preprocessed
-crs: 4326 # WGS 84 <=> EPSG: 4326
+path_data_intermediate: data/intermediate
+crs: 3310 # WGS 84 <=> EPSG: 4326 is not projected
 quantile_fire_area: 0.5
 bbox_ca: # california bounding box
   xmin: -124.5
@@ -12,6 +13,10 @@ bbox_ca: # california bounding box
 url_fires: https://services1.arcgis.com/jUJYIo9tSA7EHvfZ/arcgis/rest/services/California_Historic_Fire_Perimeters/FeatureServer/0
 url_storms: https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/
 url_prism: https://services.nacse.org/prism/data/get/
-modis_prodname: M*D13Q1
-modis_bandnames: [NDVI, EVI]
-modis_selprod: Vegetation Indexes_16Days_250m (M*D13Q1)
+mod13:
+  - subtask: evi
+    product: MOD13A3.061
+    layer: _1_km_monthly_EVI
+  - subtask: ndvi
+    product: MOD13A3.061
+    layer: _1_km_monthly_NDVI
