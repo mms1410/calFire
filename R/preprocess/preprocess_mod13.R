@@ -7,9 +7,10 @@ library(fs)
 library(zoo)
 #-------------------------------------------------------------------------------
 root <- here::here()
-conf <- yaml::read_yaml(path(root, "conf", "data_processing.yaml"))
-source <- path(root, conf[["path_data_raw"]], "mod13")
-destination <- path(root, conf[["path_data_preprocessed"]])
+conf_data <- yaml::read_yaml(path(root, "conf", "data.yaml"))
+conf_paths <- yaml::read_yaml(path(root, "conf", "paths.yaml"))
+source <- path(root, conf_paths[["data_raw"]], "mod13")
+destination <- path(root, conf_paths[["data_preprocessed"]])
 #-------------------------------------------------------------------------------
 all_files <- dir_ls(source)
 ndvi_files <- grep("NDVI.*\\.tif$", all_files, value = TRUE)
@@ -44,10 +45,40 @@ for (year in names(ndvi_files_grouped)) {
   rast_list_ndvi[[year]] <- yearly_ndvi
   rast_list_evi[[year]] <- yearly_evi
 }
-ndvi <- rast(rast_list_ndvi)
-evi <- rast(rast_list_evi)
 
-writeRaster(evi, path(destination, "evi.tif"))
-writeRaster(ndvi, path(destination, "ndvi.tif"))
+ndvi <- rast(rast_list_ndvi)
+idx_ndvi <- names(ndvi)[substring(names(ndvi), 1, 4) %in% conf$start_year:conf$end_year]
+ndvi <- subset(ndvi, idx_ndvi)
+
+evi <- rast(rast_list_evi)
+idx_evi <- names(evi)[substring(names(evi), 1, 4) %in% conf$start_year:conf$end_year]
+evi <- subset(evi, idx_evi)
+
+writeRaster(evi, path(destination, "evi.tif"), overwrite = TRUE)
+writeRaster(ndvi, path(destination, "ndvi.tif"), overwrite = TRUE)
+#-------------------------------------------------------------------------------
+agg_rast_yearly <- function(ra, agg_func = mean){
+  yearly_list <- list()
+  ym <- names(ra)
+  y_group <- split(ym, substring(ym, 1, 4))
+  for (year in names(y_group)) {
+    idx <- ym %in% y_group[[year]]
+    monthly_ra <- subset(ra, idx)
+    rast_agg <- app(monthly_ra, fun = agg_func, na.rm = TRUE)
+    yearly_list[[year]] <- rast_agg
+  }
+  final_raster <- rast(yearly_list)
+  names(final_raster) <- names(y_group)
+  dates <- as.Date(paste0(names(y_group), "-01-01"))
+  checkmate::assert(length(dates) == nlyr(final_raster))
+  terra::time(final_raster) <- dates
+  final_raster
+}
+
+ndvi_agg <- agg_rast_yearly(ndvi)
+evi_agg <- agg_rast_yearly(evi)
+
+writeRaster(ndvi_agg, path(destination, "mdvi_agg.tif"), overwrite = TRUE)
+writeRaster(evi_agg, path(destination, "evi_agg.tif"), overwrite = TRUE)
 #-------------------------------------------------------------------------------
 rm(list = ls())

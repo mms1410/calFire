@@ -6,17 +6,18 @@ library(dotenv)
 library(checkmate)
 library(appeears)
 #-------------------------------------------------------------------------------
-conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
-destination_dir <- path(here(), conf[["path_data_raw"]])
+conf_path <- read_yaml(path(here(), "conf", "paths.yaml"))
+conf_data <- read_yaml(path(here(), "conf", "data.yaml"))
+destination_dir <- path(here(), conf_path[["data_raw"]])
 
-checkmate::assert("mod13" %in% names(conf))
+checkmate::assert("mod13" %in% names(conf_data))
 query_frame <- do.call(
-  rbind, lapply(conf$mod13, as.data.frame)
+  rbind, lapply(conf_data$mod13, as.data.frame)
 )
 checkmate::assert(all(c("subtask", "product", "layer") %in% names(query_frame)))
 query_frame$task <- "mod13"
-query_frame$start <- paste0(conf[["start_year"]], "-01-01")
-query_frame$end <- paste0(conf[["end_year"]], "-12-31")
+query_frame$start <- paste0(conf_data[["start_year"]], "-01-01")
+query_frame$end <- paste0(conf_data[["end_year"]], "-12-31")
 #-------------------------------------------------------------------------------
 dotenv::load_dot_env()
 checkmate::assert("EARTHDATA_PASSWORD" %in% names(Sys.getenv()))

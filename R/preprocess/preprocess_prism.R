@@ -10,6 +10,7 @@ library(zoo)
 conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
 years <- conf$start_year:conf$end_year
 ca <- us_states(states = "CA")
+ca <- st_transform(ca, st_crs(conf$crs))
 #-------------------------------------------------------------------------------
 source_folder <- path(here(), conf$path_data_raw, "prism")
 destination_folder <- path(here(), conf$path_data_preprocessed)
@@ -33,11 +34,9 @@ process_raster_img <- function(zip_path) {
   bil_file <- content[grepl("\\.bil$", content)]
   vsi_path <- paste0("/vsizip/", zip_path)
   ppt_raster <- rast(paste0("/vsizip/", zip_path, "/", bil_file))
-  ca_vect <- vect(st_transform(ca, crs(ppt_raster)))
-  ppt_raster_ca <- crop(ppt_raster, ca_vect)
-  # NAD83 (EPSG:4269) and WGS84 (EPSG:4326) are practically identical and
-  # reprojection would change up to ~2meters only and is therefore neglected
-  mask(ppt_raster_ca, ca_vect)
+  ppt_raster <- project(ppt_raster, crs(ca))
+  ppt_raster_ca <- crop(ppt_raster, ca)
+  #mask(ppt_raster_ca, ca_vect)
 }
 
 destination <- path(destination_folder, year)
@@ -57,5 +56,7 @@ dir_create(destination_folder)
 writeRaster(prism_final,
             path(destination_folder, "prism.tif"),
             overwrite = TRUE)
+
+# TODO: common scale each raster
 #-------------------------------------------------------------------------------
 rm(list = ls())

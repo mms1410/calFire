@@ -1,18 +1,20 @@
-library(lubridate)
-#-------------------------------------------------------------------------------
-source("R/load_data.R")
-#-------------------------------------------------------------------------------
-count_by_year <- function(fires, floods, debris){
-  fires <- as.data.table(fires)
-  floods <- as.data.table(floods)
-  debris <- as.data.table(debris)
+get_count_ts <- function(data, by = "month", date_col = "date") {
+  data <- st_drop_geometry(data)
   
-  yearly_fires <- fires[, .(id, year = lubridate::year(date))][
-    , .(fires = .N), by = year]
-  yearly_floods <- floods[, .(id, year = lubridate::year(date))][
-    , .(floods = .N), by = year]
-  yearly_debris <- debris[, .(id, year = lubridate::year(date))][
-    , .(debris = .N), by = year]
+  years <- lubridate::year(data[[date_col]])
+  months <- lubridate::month(data[[date_col]])
+  to_group <- as.Date(paste0(years, "-", months, "-01"))
   
-  yearly_fires[yearly_floods, on = "year"][yearly_debris, on = "year"]
+  data |>
+    mutate(time = to_group) |>
+    group_by(time) |>
+    summarize(count = n())
+}
+read_tif_from_zip <- function(path_to_zip, filename = NULL) {
+  if (is.null(filename)) {
+    filename <- basename(path_to_zip)
+    filename <- tools::file_path_sans_ext(filename)
+    filename <- paste0(filename, ".tif")
+  }
+  terra::rast(path(paste0("/vsizip//", path_to_zip), filename))
 }

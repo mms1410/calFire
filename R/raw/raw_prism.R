@@ -3,7 +3,7 @@ library(fs)
 library(yaml)
 library(here)
 library(raster)
-
+#https://data.prism.oregonstate.edu/normals/us/800m/
 #-------------------------------------------------------------------------------
 conf <- read_yaml(path(here(), "conf", "data_processing.yaml"))
 years <- conf$start_year:conf$end_year

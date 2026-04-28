@@ -1,70 +1,122 @@
+source("R/utils/load_data.R")
+source("R/utils/plot_functions.R")
+source("R/utils/helper_functions.R")
+#-------------------------------------------------------------------------------
 library(fs)
 library(here)
 library(sf)
 library(ggplot2)
 library(tidyverse)
-library(maps)
-library(rnaturalearth)
 #-------------------------------------------------------------------------------
-source("R/load_data.R")
-#source("R/utils/helper_functions.R")
-#source("R/utils/plot_functions.R")
-ca_map <- map_data("state", region = "california")
-usa <- ne_states(country = "united states of america", returnclass = "sf")
-ca <- usa[usa$name == "California", ]
-plot_folder <- path(here(), "assets", "plots" ,"eda")
+plot_folder <- path(here(), "assets", "plots")
 dir_create(plot_folder)
 noaa_burn_cause <- "Heavy Rain / Burn Area"
-period <- paste0(conf$start_year," - ", conf$end_year)
-theme_set(theme_minimal())
-
+period <- paste0(conf_data$start_year," - ", conf_data$end_year)
 #-------------------------------------------------------------------------------
-# map total events
+fires <- get_fires()
+burnt_area <- get_burnt_area()
+ca_eco_l3 <- get_ecozones()
+ca <- get_ca()
+#-------------------------------------------------------------------------------
+########################
+# Wildfires Descriptive
+#######################
 ggplot() +
-  geom_sf(data = ca_eco_l3, aes(fill = name), alpha = 0.2) +
-  geom_sf(data = burnt_area, color = "grey") +
-  geom_sf(data = fires,
-          aes(shape = "Fire"), color = "red", shape = 19, size = 0.1, alpha = 0.4) +
-  geom_sf(data = debris |>
-            filter(cause == noaa_burn_cause),
-          aes(shape = "Debris Flow"), color = "black", size = 1.5, shape = 18, alpha = 0.8) +
-  geom_sf(data = floods |>
-            filter(cause == noaa_burn_cause),
-          aes(shape = "Flash Flood"), color = "blue", size = 1.5, shape = 17, alpha = 0.8) +
-  xlab("Latitude") +
-  ylab("Longitude") +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 5),      # Smaller text
-    legend.title = element_text(size = 6),     # Smaller title
-    legend.key.size = unit(0.2, "cm")          # Smaller boxes
-  ) +
-  guides(fill = guide_legend(
-    ncol = 2,                                   # 3 columns
-    title = "Ecoregion",
-    override.aes = list(alpha = 0.7)           # More visible in legend
-  ))
-ggsave(path(plot_folder, "map_total_events.png"))
+  get_ca_layer() +
+  get_fires_layer() +
+  facet_wrap(~ lubridate::year(date)) +
+  #ggtitle("Yearly wildfire locations") +
+  theme(axis.ticks = element_blank(), axis.text = element_blank()) 
+gg_save("fires_yearly", width = NA, height = NA)
 
 
-# counts over time
-bind_rows(
-  debris %>% mutate(type = "debris"),
-  floods %>% mutate(type = "flood"),
-  fires  %>% mutate(type = "fire")
-) %>%
-  mutate(period = floor_date(date, unit = "month")) %>%
-  count(type, period) %>%
-  group_by(type) %>%
-  mutate(n_scaled = (n - min(n)) / (max(n) - min(n))) %>%
-  ungroup() |>
-  mutate(type = factor(type, levels = c("fire", "debris", "flood"))) |>
-  ggplot(aes(x = period, y = n, fill = type)) +
-  geom_col(alpha = 0.85) +
-  facet_wrap(~ type, ncol = 1, scales = "free_y") +
-  scale_fill_manual(values = c("debris" = "black", "flood" = "blue", "fire" = "red")) +
-  ylab("Count") +
-  xlab("Time") + 
-  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
-ggsave(path(plot_folder, "time_count_per_type.png"))
+ggplot() +
+  get_fires_layer() + 
+  get_ecoz_layer(legend = TRUE) +
+  theme(legend.position = "right") +
+  #ggtitle(paste0("Total wildfires by Ecozone ", period)) +
+  labs(fill = "")
+gg_save("fires_total_ecoz")
+
+
+ggplot() +
+  get_fires_layer(alpha = 0.7) +
+  get_ecoz_layer() +
+  theme(axis.ticks = element_blank(), axis.text = element_blank()) +
+  facet_wrap(~ lubridate::year(date))
+gg_save("fires_yearly_ecoz")
+
+
+## time series total wildfires
+fires |>
+  get_count_ts() |>
+  ggplot() +
+  geom_line(aes(x = time, y = count)) +
+  # ggtitle(paste0("Monthly wildfire counts ", period)) +
+  xlab("Year and Month")
+gg_save("ts_wildfire_counts")
+
+
+## time series total wildfires ecozone
+fires |>
+  st_join(ca_eco_l3) |>
+  mutate(year = lubridate::year(date), month = lubridate::month(date)) |>
+  group_by(year, month, name) |>
+  summarize(count = n()) |>
+  mutate(year_month = as.Date(paste0(year, "-", month, "-", 1))) |>
+  select(c(year_month, count, name)) |>
+  ggplot() +
+  geom_line(aes(x = year_month, y = count, color = name)) +
+  #ggtitle(paste("Monthly wildfire counts ", period, "by ecological region")) +
+  xlab("Month")
+gg_save("ts_wildfire_counts_ecoz")
 #-------------------------------------------------------------------------------
+#######################
+# Wildfires Exploratory
+#######################
+library(spatstat)
+library(ggdensity)
+
+fires_pp <- ppp(x = st_coordinates(fires)[,1],
+                y = st_coordinates(fires)[,2],
+                window = as.owin(ca)) #as.owin(st_transform(ca, 3310)))
+
+density(fires_pp, sigma = bw.ppl(fires_pp), at = "pixels") |> 
+  as.data.frame() |>
+  ggplot(aes(x = x, y = y, fill = value)) +
+  geom_raster() +
+  scale_fill_viridis_c() +
+  ylab("Latiude") +
+  xlab("Longitude") +
+  labs(fill = "Density") +
+  #ggtitle(paste0("Density estimation Wildfires ", conf_data$start_year, "-", conf_data$end_year)) +
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank())
+ggsave(path(here(), "assets", "plots", "density_wildfires_total.png"), dpi = 300)
+#-------------------------------------------------------------------------------
+ym_names <- function(names) {
+  format(ym(names), "%Y %b")
+}
+#######
+# NDVI
+#######
+ndvi <- get_ndvi()
+ndvi_names <- ym_names(names(ndvi))
+raster_to_pngs(ndvi,
+               destination_dir = path(plot_folder, "ndvi"),
+               raster_names = ndvi_names)
+pngs_to_gif(path(plot_folder, "ndvi"),
+            path(plot_folder, "ndvi.gif"),
+            ndvi_names)
+###############
+# Percipitation
+###############
+percpt <- get_percipitation()
+percp_names <- ym_names(names(percpt))
+raster_to_pngs(percpt,
+               path(plot_folder, "percp"),
+               percp_names)
+
+plot_prism_total <- function(prism_folder, yearls = TRUE) {
+  
+}
